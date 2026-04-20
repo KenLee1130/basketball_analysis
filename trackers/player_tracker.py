@@ -11,7 +11,7 @@ class PlayerTracker:
     This class combines YOLO object detection with ByteTrack tracking to maintain consistent
     player identities across frames while processing detections in batches.
     """
-    def __init__(self, model_path):
+    def __init__(self, model_path, device="cpu"):
         """
         Initialize the PlayerTracker with YOLO model and ByteTrack tracker.
 
@@ -20,6 +20,7 @@ class PlayerTracker:
         """
         self.model = YOLO(model_path) 
         self.tracker = sv.ByteTrack()
+        self.device = device
 
     def detect_frames(self, frames):
         """
@@ -34,7 +35,12 @@ class PlayerTracker:
         batch_size=20 
         detections = [] 
         for i in range(0,len(frames),batch_size):
-            detections_batch = self.model.predict(frames[i:i+batch_size],conf=0.5)
+            detections_batch = self.model.predict(
+                frames[i:i+batch_size],
+                conf=0.5,
+                device=self.device,
+                verbose=False,
+            )
             detections += detections_batch
         return detections
 

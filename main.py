@@ -1,5 +1,6 @@
 import os
 import argparse
+import torch
 from utils import read_video, save_video
 from trackers import PlayerTracker, BallTracker
 from team_assigner import TeamAssigner
@@ -33,20 +34,49 @@ def parse_args():
                         help='Path to output video file')
     parser.add_argument('--stub_path', type=str, default=STUBS_DEFAULT_PATH,
                         help='Path to stub directory')
+    parser.add_argument('--device', type=str, default='auto',
+                        help="Device to use: 'auto', 'cpu', 'cuda', or 'cuda:0'")
+    parser.add_argument('--require_gpu', action='store_true',
+                        help='Fail fast if CUDA is not available')
     return parser.parse_args()
+
+def resolve_device(device_arg, require_gpu=False):
+    """
+    Resolve the runtime device from a CLI argument.
+    """
+    if device_arg == 'auto':
+        resolved_device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    elif device_arg == 'cuda':
+        resolved_device = 'cuda:0'
+    else:
+        resolved_device = device_arg
+
+    if require_gpu and not resolved_device.startswith('cuda'):
+        raise RuntimeError("`--require_gpu` was set but CUDA is not available.")
+
+    if resolved_device.startswith('cuda') and not torch.cuda.is_available():
+        raise RuntimeError(
+            f"Requested device '{resolved_device}' but CUDA is not available in this environment."
+        )
+
+    return resolved_device
 
 def main():
     args = parse_args()
+    device = resolve_device(args.device, args.require_gpu)
+    print(f"Using device: {device}")
+    if device.startswith('cuda'):
+        print(f"CUDA device: {torch.cuda.get_device_name(0)}")
     
     # Read Video
     video_frames = read_video(args.input_video)
     
     ## Initialize Tracker
-    player_tracker = PlayerTracker(PLAYER_DETECTOR_PATH)
-    ball_tracker = BallTracker(BALL_DETECTOR_PATH)
+    player_tracker = PlayerTracker(PLAYER_DETECTOR_PATH, device=device)
+    ball_tracker = BallTracker(BALL_DETECTOR_PATH, device=device)
 
     ## Initialize Keypoint Detector
-    court_keypoint_detector = CourtKeypointDetector(COURT_KEYPOINT_DETECTOR_PATH)
+    court_keypoint_detector = CourtKeypointDetector(COURT_KEYPOINT_DETECTOR_PATH, device=device)
 
     # Run Detectors
     player_tracks = player_tracker.get_object_tracks(video_frames,
@@ -71,7 +101,7 @@ def main():
    
 
     # Assign Player Teams
-    team_assigner = TeamAssigner()
+    team_assigner = TeamAssigner(device=device)
     player_assignment = team_assigner.get_player_teams_across_frames(video_frames,
                                                                     player_tracks,
                                                                     read_from_stub=True,

@@ -40,7 +40,7 @@ Below is the final annotated output video.
 
 ## 🔧 Prerequisites
 
-- Python 3.8+
+- Python 3.9-3.11
 - (Optional) Docker
 
 ---
@@ -51,12 +51,27 @@ Setup your environment locally or via Docker.
 
 ### Python Environment
 
-1. Create a virtual environment (e.g., venv/conda).
-2. Install the required packages:
+1. Create a virtual environment with Python 3.9-3.11 (conda is a convenient option on Ubuntu 24.04+).
+2. Install PyTorch first for your platform and hardware.
+3. Install the remaining runtime dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
+
+If you already have a working `torch` installation in your environment, `requirements.txt` will keep it and install the rest of the packages around it.
+
+Example with conda:
+
+```bash
+conda create -n basketball python=3.11 -y
+conda activate basketball
+python -m pip install -U pip setuptools wheel
+# Install a torch build that matches your platform/GPU first.
+pip install -r requirements.txt
+```
+
+`requirements.txt` is the runtime/inference environment. Roboflow is intentionally excluded from this file because it pins a separate `opencv-python-headless` build that conflicts with the OpenCV package used by the main application.
 
 ### Docker
 
@@ -96,7 +111,13 @@ This repository relies on trained models for detecting basketballs, players, and
    - `basketball_court_keypoint_training.ipynb`: Uses YOLOv8 to detect keypoints on the court (e.g., lines, corners, key zones).
    - `basketball_player_detection_training.ipynb`: Trains a player detection model (using YOLO v11) to identify players in each frame.
 
-   You can easily run these notebooks in Google Colab or another environment with GPU access. After training, download the newly generated `.pt` files and place them in the `models/` folder.
+   You can easily run these notebooks in Google Colab or another environment with GPU access. If you want a dedicated local notebook/training environment, install the training-specific dependency set in a separate environment:
+
+```bash
+pip install -r requirements-training.txt
+```
+
+   Keeping training dependencies separate avoids `opencv-python` vs. `opencv-python-headless` conflicts in the main runtime environment. After training, download the newly generated `.pt` files and place them in the `models/` folder.
 
 ## Once you have your models in place, you may proceed with the usage steps described above. If you want to retrain or fine-tune for your specific dataset, remember to adjust the paths in the notebooks and in `main.py` to point to the newly generated models.
 
@@ -109,11 +130,65 @@ You can run this repository’s core functionality (analysis pipeline) with Pyth
 Run the main entry point with your chosen video file:
 
 ```bash
-python main.py path_to_input_video.mp4 --output_video output_videos/output_result.avi
+python main.py path_to_input_video.mp4 --output_video output_videos/output_result.mp4
 ```
 
 - By default, intermediate “stubs” (pickled detection results) are used if found, allowing you to skip repeated detection/tracking.
 - Use the `--stub_path` flag to specify a custom stub folder, or disable stubs if you want to run everything fresh.
+
+### 1.5) Download and Segment Full-Game Videos
+
+If you want to prepare YouTube full-game footage before analysis, this repository now includes a small CLI under `full_game/`.
+
+Install the two external tools first:
+
+```bash
+sudo apt install ffmpeg
+python -m pip install -U "yt-dlp[default]"
+```
+
+If your system `yt-dlp` comes from Ubuntu packages, it may be too old for current YouTube extraction. The safest route is to install the latest official release in your user path:
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
+chmod a+rx ~/.local/bin/yt-dlp
+hash -r
+yt-dlp --version
+```
+
+Recent YouTube support also benefits from a JavaScript runtime. `node` or `deno` works; if one is on your `PATH`, the `full_game` downloader will try to use it automatically with newer `yt-dlp` releases.
+
+Download a single YouTube video at a target resolution:
+
+```bash
+python -m full_game download \
+  --url "https://www.youtube.com/watch?v=YOUR_VIDEO_ID" \
+  --resolution 720
+```
+
+- `--resolution best` keeps the highest quality available.
+- Downloaded files default to `full_game/downloads/`.
+- If a video needs authentication or age verification, add `--cookies-from-browser chrome` or another supported browser.
+
+Cut a local clip by start and end time:
+
+```bash
+python -m full_game segment \
+  --input full_game/downloads/your_video.mp4 \
+  --start 00:10:00 \
+  --end 00:12:30
+```
+
+- Time accepts `seconds`, `MM:SS`, or `HH:MM:SS`.
+- Segments default to `full_game/segments/` and are encoded as H.264 MP4 for easier playback.
+- Use `--output path/to/clip.mp4` if you want to control the filename directly.
+
+Then feed the clip into the analysis pipeline:
+
+```bash
+python main.py full_game/segments/your_clip.mp4 --output_video output_videos/your_clip_result.mp4
+```
 
 ### 2) Using Docker
 
@@ -130,7 +205,7 @@ docker run \
   -v $(pwd)/videos:/app/videos \
   -v $(pwd)/output_videos:/app/output_videos \
   basketball-analysis \
-  python main.py videos/input_video.mp4 --output_video output_videos/output_result.avi
+  python main.py videos/input_video.mp4 --output_video output_videos/output_result.mp4
 ```
 
 ---
